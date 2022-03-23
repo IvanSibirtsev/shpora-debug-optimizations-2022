@@ -1,66 +1,74 @@
-﻿using System.Drawing;
+﻿using System;
+using System.Drawing;
+using System.Drawing.Imaging;
 
-namespace JPEG.Images
+namespace JPEG.Images;
+
+public unsafe class Matrix : IDisposable
 {
-    class Matrix
+    private readonly Bitmap bitmap;
+    private readonly BitmapData bmd;
+    private readonly int depth;
+    private readonly byte* firstPixelPtr;
+    private readonly int stride;
+
+    public Matrix(Bitmap bitmap, int width, int height)
     {
-        public readonly Pixel[,] Pixels;
-        public readonly int Height;
-        public readonly int Width;
-				
-        public Matrix(int height, int width)
+        this.bitmap = bitmap;
+        Width = width;
+        Height = height;
+        bmd = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.ReadOnly, bitmap.PixelFormat);
+        firstPixelPtr = (byte*)bmd.Scan0;
+        stride = bmd.Stride;
+        depth = Image.GetPixelFormatSize(bmd.PixelFormat) / 8;
+    }
+
+    public int Width { get; }
+    public int Height { get; }
+
+    public PixelRgb this[int y, int x]
+    {
+        get
         {
-            Height = height;
-            Width = width;
-			
-            Pixels = new Pixel[height,width];
-            for(var i = 0; i< height; ++i)
-            for(var j = 0; j< width; ++j)
-                Pixels[i, j] = new Pixel(0, 0, 0, PixelFormat.RGB);
+            var ptr = firstPixelPtr + y * stride + x * depth;
+            var b = ptr[0];
+            var g = ptr[1];
+            var r = ptr[2];
+            return new PixelRgb(r, g, b);
         }
 
-        public static explicit operator Matrix(Bitmap bmp)
+        set
         {
-            var height = bmp.Height - bmp.Height % 8;
-            var width = bmp.Width - bmp.Width % 8;
-            var matrix = new Matrix(height, width);
-
-            for(var j = 0; j < height; j++)
-            {
-                for(var i = 0; i < width; i++)
-                {
-                    var pixel = bmp.GetPixel(i, j);
-                    matrix.Pixels[j, i] = new Pixel(pixel.R, pixel.G, pixel.B, PixelFormat.RGB);
-                }
-            }
-
-            return matrix;
+            var ptr = firstPixelPtr + y * stride + x * depth;
+            ptr[0] = ToByte(value.B);
+            ptr[1] = ToByte(value.G);
+            ptr[2] = ToByte(value.R);
         }
+    }
 
-        public static explicit operator Bitmap(Matrix matrix)
+    public void Dispose()
+    {
+        bitmap.UnlockBits(bmd);
+        bitmap.Dispose();
+    }
+
+    public static Matrix FromBitmap(Bitmap bitmap)
+    {
+        var width = bitmap.Width - bitmap.Width % 8;
+        var height = bitmap.Height - bitmap.Height % 8;
+        return new Matrix(bitmap, width, height);
+    }
+
+    public static Bitmap ToBitmap(Matrix matrix) => matrix.bitmap;
+
+    private static byte ToByte(double d)
+    {
+        var val = (int)d;
+        return val switch
         {
-            var bmp = new Bitmap(matrix.Width, matrix.Height);
-
-            for(var j = 0; j < bmp.Height; j++)
-            {
-                for(var i = 0; i < bmp.Width; i++)
-                {
-                    var pixel = matrix.Pixels[j, i];
-                    bmp.SetPixel(i, j, Color.FromArgb(ToByte(pixel.R), ToByte(pixel.G), ToByte(pixel.B)));
-                }
-            }
-
-            return bmp;
-        }
-
-        public static int ToByte(double d)
-        {
-            var val = (int) d;
-            if (val > byte.MaxValue)
-                return byte.MaxValue;
-            if (val < byte.MinValue)
-                return byte.MinValue;
-            return val;
-        }
+            > byte.MaxValue => byte.MaxValue,
+            < byte.MinValue => byte.MinValue,
+            _ => (byte)val
+        };
     }
 }
